@@ -1,6 +1,40 @@
 
+// script-global highlightButton pressed state variable
+var highlightButtonPressed;
+
+// get initial value of global pressed state variable
+updateHighlightButtonPressed();
+
+// update local highlightButton pressed state variable when
+// global one updates
+chrome.runtime.onMessage.addListener(
+  function (request, sender, sendResponse) {
+    if (request.action == "updateHighlightPressed") {
+      updateHighlightButtonPressed();
+    }
+  }
+)
+
+/**
+ *
+ * Updates script-global highlightButton pressed state variable
+ * to storage-global highlightButton pressed state variable.
+ *
+ */
+function updateHighlightButtonPressed () {
+  chrome.storage.sync.get(
+    ['highlightPressed'],
+    function (result) {
+      highlightButtonPressed = result.highlightPressed;
+    }
+  );
+};
+
+//
 const openTag = "<mark>";
 const closeTag = "</mark>";
+
+
 
 document.addEventListener("mouseup", function (e) {
   let s = window.getSelection();
@@ -13,14 +47,16 @@ document.addEventListener("mouseup", function (e) {
   console.log(`Offset at element with id: ${myAnchorElem.parentElement.id} is: ${myAnchorOffset}`);
   console.log(`Offset at element with id: ${myFocusElem.parentElement.id} is: ${myFocusOffset}`);
 
+  if (highlightButtonPressed) {
+    highlight(
+        anchorNode=myAnchorElem,
+        anchorOffset=myAnchorOffset,
+        focusNode=myFocusElem,
+        focusOffset=myFocusOffset
+    );
+    s.empty();
+  }
 
-  highlight(
-      anchorNode=myAnchorElem,
-      anchorOffset=myAnchorOffset,
-      focusNode=myFocusElem,
-      focusOffset=myFocusOffset
-  );
-  s.empty();
 });
 
 /**
