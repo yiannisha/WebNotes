@@ -31,27 +31,38 @@ function updateHighlightButtonPressed () {
 };
 
 
+
+var markCounter = 0;
+
 const openTag = '<span id="webNotes" class="highlight">';
 const closeTag = "</span>";
 const tagName = "SPAN";
 
+var openTagOffsets = [];
+var closeTagOffsets = [];
+
 document.addEventListener("mouseup", function (e) {
-  let s = window.getSelection();
+  if (highlightButtonPressed) {
+    let s = window.getSelection();
 
-  let ca = getCommonAncestor(s.anchorNode, s.focusNode);
-  console.log("CommonAncestor: " + ca.nodeName);
-  console.log(getOffset(s.anchorNode, ca) + s.anchorOffset);
-  console.log(getOffset(s.focusNode, ca) + s.focusOffset);
+    if (s.toString().length < 1) {
+      throw "Selection too small... aborting";
+    }
+
+    let ca = getCommonAncestor(s.anchorNode, s.focusNode);
+    console.log("CommonAncestor: " + ca.nodeName);
+    console.log(getOffset(s.anchorNode, ca) + s.anchorOffset);
+    console.log(getOffset(s.focusNode, ca) + s.focusOffset);
 
 
-  highlightArea(
-      anchorNode=s.anchorNode,
-      anchorOffset=s.anchorOffset,
-      focusNode=s.focusNode,
-      focusOffset=s.focusOffset
-  );
-  s.empty();
-
+    highlightArea(
+        anchorNode=s.anchorNode,
+        anchorOffset=s.anchorOffset,
+        focusNode=s.focusNode,
+        focusOffset=s.focusOffset
+    );
+    s.empty();
+  }
 });
 
 /**
@@ -99,18 +110,10 @@ function highlightArea (anchorNode, anchorOffset, focusNode, focusOffset) {
 
   // if the nodes are in a mark then we need the offset
   // to be looking at the start of that mark
-  if ((anchor.mark = getMark(anchor.ancestors))) {
-    anchor.innerOffset = getOffset(anchor.mark, commonAncestor);
-  }
-  else {
-    anchor.innerOffset = getOffset(anchor.node, commonAncestor);
-  }
-  if ((focus.mark = getMark(focus.ancestors))) {
-    focus.innerOffset = getOffset(focus.mark, commonAncestor);
-  }
-  else {
-    focus.innerOffset = getOffset(focus.node, commonAncestor);
-  }
+  anchor.mark = getMark(anchor.ancestors);
+  anchor.innerOffset = getOffset(anchor.node, commonAncestor);
+  focus.mark = getMark(focus.ancestors);
+  focus.innerOffset = getOffset(focus.node, commonAncestor);
 
   // anchor must alway be the one closest to top
   let trueAnchorOffset = anchor.innerOffset + anchor.originalOffset;
@@ -119,41 +122,158 @@ function highlightArea (anchorNode, anchorOffset, focusNode, focusOffset) {
     swap(anchor, focus);
   }
 
-  // check if all ancestors up to common ancestor are inline elements
-  let inline = isParentInline(anchor.ancestors, commonAncestor) &&
-               isParentInline(focus.ancestors, commonAncestor);
+  if ((anchor.node == focus.node) && !anchor.mark) {
 
-  // if all ancestors up to the common ancestors are inline elements
-  // then there are no other elements in between that need highlighting
-  if (inline) {
-    if ((anchor.mark == focus.mark) && anchor.mark /* && some other check for inbetween elements*/) {
-      // anchor and focus are in the same mark
-      // unhighlight
-      ;
+    // to be put in function
+
+    let trueAnchorOffset = anchor.innerOffset + anchor.originalOffset;
+    let trueFocusOffset = focus.innerOffset + focus.originalOffset;
+
+    openTagOffsets.push(trueAnchorOffset);
+    closeTagOffsets.push(trueFocusOffset);
+
+  }
+  else {
+
+
+    let anchorAncestryLevel, focusAncestryLevel;
+
+    if (anchor.ancestors.length < focus.ancestors.length) {
+      focusAncestryLevel = focus.ancestors.length - anchor.ancestors.length;
+      anchorAncestryLevel = 0;
     }
     else {
-      // anchor and focus are not in the same mark or a mark at all
-      if (anchor.parentNode == focus.parentNode) {
-        // anchor and focus are siblings
-        highlightSiblings(anchor, focus, commonAncestor);
-      }
-      else {
-        // anchor and focus are not siblings, highlight each element on its own
+      focusAncestryLevel = 0;
+      anchorAncestryLevel = anchor.ancestors.length - focus.ancestors.length;
+    }
 
+    // highlight anchor node
+    let trueAnchorOffset = anchor.innerOffset + anchor.originalOffset;
+    let closeAnchorOffset = anchor.innerOffset + (isElement(anchor.node) ? anchor.node.innerHTML.length : anchor.node.nodeValue.length);
+
+    openTagOffsets.push(trueAnchorOffset);
+    closeTagOffsets.push(closeAnchorOffset);
+
+    // highlight siblings of anchor node
+
+    let prevNode = anchor.node;
+    let node = prevNode.nextSibling;
+    let innerOffset = closeAnchorOffset;
+    let outerOffset = innerOffset;
+
+    let reachFocus = false;
+
+    while (node) {
+
+      if (node == focus.ancestors[focusAncestryLevel]) {
+        console.log("reached focusnode");
+        reachFocus = true;
+        break;
+      }
+
+      innerOffset = outerOffset + (isElement(prevNode) ? closeTagLength(prevNode) : 0) + (isElement(node) ? openTagLength(node) : 0);
+      outerOffset = innerOffset + (isElement(node) ? node.innerHTML.length : node.nodeValue.length);
+
+      openTagOffsets.push(innerOffset);
+      closeTagOffsets.push(outerOffset);
+
+      prevNode = node;
+      node = node.nextSibling;
+    }
+
+
+    // highlight focus
+
+    let openFocusOffset = focus.innerOffset;
+    let trueFocusOffset = focus.innerOffset + focus.originalOffset;
+
+    openTagOffsets.push(openFocusOffset);
+    closeTagOffsets.push(trueFocusOffset);
+
+    // highlight previous siblings of focus node
+
+    prevNode = focus.node;
+    node = prevNode.previousSibling;
+    innerOffset = openFocusOffset;
+    outerOffset = innerOffset;
+
+    if (!reachFocus) {
+      while (node) {
+
+        if (node == anchor.ancestors[anchorAncestryLevel]) {
+          console.log("reached anchornode");
+          break;
+        }
+
+        innerOffset = outerOffset - (isElement(prevNode) ? openTagLength(prevNode) : 0) - (isElement(node) ? closeTagLength(node) : 0);
+        outerOffset = innerOffset - (isElement(node) ? node.innerHTML.length : node.nodeValue.length);
+
+        openTagOffsets.push(outerOffset);
+        closeTagOffsets.push(innerOffset);
+
+        prevNode = node;
+        node = node.previousSibling;
       }
     }
+
   }
-  // highlight inbetween elements
-  else {
-    ;
-    // check for unhighlighting
-    //highlightElements(anchor, focus, ancestor);
-  }
+
+  addTags();
+  openTagOffsets = [];
+  closeTagOffsets = [];
+
 }
 
 /**
  *
- * Highlights area between siblings anchor node and focus node.
+ * Adds tags to document.body.innerHTML.
+ *
+ */
+function addTags () {
+
+  // copy of document.body.innerHTML -- not reference!
+  let t = document.body.innerHTML;
+  // aggregated difference to offset caused by the tags
+  let diff = 0;
+
+  // sort offset lists in ascending order
+  openTagOffsets.sort(function(a, b) { return a-b; });
+  closeTagOffsets.sort(function (a, b) { return a - b; });
+
+  // add open tags
+  let i = 0, j = 0;
+  while (i < openTagOffsets.length || j < closeTagOffsets.length) {
+
+    let tag;
+    let offset;
+    // always add the one with the less offset
+
+    if (openTagOffsets[i] < closeTagOffsets[j]) {
+      tag = addOpenTag();
+      offset = openTagOffsets[i++] + diff;
+    }
+    else {
+      tag = closeTag;
+      offset = closeTagOffsets[j++] + diff;
+     }
+
+    // add tag to the copy
+    t = t.slice(0, offset) + tag + t.slice(offset);
+    // increment aggregated difference with the length of the current tag
+    diff += tag.length;
+  }
+
+  // openTagOffsets.length == closeTagOffsets is always true
+  // so i and j are always going to be openTagOffsets.length - 1
+
+  // replaces actual body.innerHTML with the new one
+  document.body.innerHTML = t;
+
+}
+
+/**
+ *
+ * Highlights area between sibling text nodes, anchor node and focus node.
  *
  * @param {nodeData} anchor node at the begging of the highlight selection are
  * @param {nodeData} focus node at the end of the highlight selection area
@@ -161,28 +281,8 @@ function highlightArea (anchorNode, anchorOffset, focusNode, focusOffset) {
  */
 function highlightSiblings (anchor, focus, commonAncestor) {
 
-  // anchor.innerOffset
-  if (anchor.mark) {
-    // ...looks at the first character of the mark's closing tag
-    anchor.innerOffset += openTag.length + anchor.mark.innerHTML.length;
-    anchor.outerOffset = anchor.innerOffset + closeTag.length;
-  }
-  else {
-    // ...looks at the first true character of the selection
-    anchor.innerOffset += anchor.originalOffset;
-    anchor.outerOffset = 0;
-  }
-
-  // focus.innerOffset
-  if (focus.mark) {
-    // ...looks at the first character of the mark's opening tag
-    focus.outerOffset = focus.innerOffset + openTag.length;
-  }
-  else {
-    // ...looks at the last true character if the selection
-    focus.innerOffset += focus.originalOffset;
-    focus.outerOffset = 0;
-  }
+  anchor.innerOffset += anchor.originalOffset;
+  focus.innerOffset += focus.originalOffset;
 
   let c = commonAncestor; // syntactic sugar
 
@@ -190,31 +290,11 @@ function highlightSiblings (anchor, focus, commonAncestor) {
   if (isElement(c)) c = c.innerHTML;
   else c = c.parentNode.innerHTML;
 
-  let newHTML = "";
-  if (!anchor.mark && !focus.mark) {
-    newHTML = c.slice(0, anchor.innerOffset)
-              + openTag
-              + c.slice(anchor.innerOffset, focus.innerOffset)
-              + closeTag
-              + c.slice(focus.innerOffset);
-  }
-  else if (!anchor.mark && focus.mark) {
-    newHTML = c.slice(0, anchor.innerOffset)
-              + openTag
-              + c.slice(anchor.innerOffset, focus.innerOffset)
-              + c.slice(focus.outerOffset);
-  }
-  else if (anchor.mark && !focus.mark) {
-    newHTML = c.slice(0, anchor.innerOffset)
-              + c.slice(anchor.outerOffset, focus.innerOffset)
-              + closeTag
-              + c.slice(focus.innerOffset);
-  }
-  else /* anchor.mark && focus.mark */ {
-      newHTML = c.slice(0, anchor.innerOffset)
-              + c.slice(anchor.outerOffset, focus.innerOffset)
-              + c.slice(focus.outerOffset);
-  }
+  newHTML = c.slice(0, anchor.innerOffset)
+            + addOpenTag()
+            + c.slice(anchor.innerOffset, focus.innerOffset)
+            + closeTag
+            + c.slice(focus.innerOffset);
 
   if (isElement(commonAncestor)) {
     commonAncestor.innerHTML = newHTML;
@@ -223,6 +303,54 @@ function highlightSiblings (anchor, focus, commonAncestor) {
     commonAncestor.parentNode.innerHTML = newHTML;
   }
 
+}
+
+/**
+ *
+ * Highlights elements between anchor and focus.
+ *
+ * @param {Object} anchor
+ * @param {Object} focus
+ * @param {Node} commonAncestor
+ */
+function highlightElementsArea (anchor, focus) {
+
+  // anchor
+
+  let commonAncestor = document.body;
+  let node = anchor.node.nextSibling;
+
+  while (node) {
+
+    let innerOffset = getOffset(node, commonAncestor);
+    let outerOffset = innerOffset + (isElement(node) ? node.innerHTML.length : node.nodeValue.length);
+
+    if (isElement(node)) {
+      let t = node.innerHTML;
+      node.innerHTML = addOpenTag() + t + closeTag;
+    }
+    else {
+      console.log(2);
+      let t = commonAncestor.innerHTML;
+      document.body.innerHTML = t.slice(0, innerOffset)
+                               + addOpenTag()
+                               + t.slice(innerOffset, outerOffset)
+                               + closeTag
+                               + t.slice(outerOffset);
+    }
+
+    node = node.nextSibling;
+  }
+
+}
+
+/**
+ *
+ * Returns a formatted openTag string and increments the counter.
+ *
+ */
+function addOpenTag () {
+  return openTag.slice(0,18) + markCounter++ + openTag.slice(18);
 }
 
 /**
@@ -347,7 +475,8 @@ function isInline (node) {
  *
  * Wrapper function for getAncestorOffset and getSiblingOffset.
  * Returns node's offset relative to the commonAncestor's innerHTML.
- * Offset looks at the first character of the node's opening tag.
+ * Offset looks at the first character of the node's opening tag (if it's an element node)
+ * or the first character of the node's text (if it's a text node).
  *
  * @param {Node} node node to get the offset of
  * @param {Node} commonAncestor count offset relative to its innerHTML
@@ -425,6 +554,9 @@ function getSiblingOffset (node) {
 
   let offset = 0;
 
+  // console.log(node.nodeName);
+  // if (node == document.body) return offset;
+
   // node's siblings
   let childNodes = node.parentNode.childNodes;
   // node's index in array of siblings
@@ -497,6 +629,53 @@ function closeTagLength (node) {
 
 /**
  *
+ * Highlights text at the edges of an area with different elements.
+ *
+ * @param {Object} anchor
+ * @param {Object} focus
+ * @param {Node} commonAncestor
+ */
+function highlightAreaEdges (anchor, focus, commonAncestor) {
+
+  let newHTML = "";
+  let p = commonAncestor.innerHTML // syntactic sugar
+
+  // anchor.outerOffset at end of text node
+  anchor.outerOffset = anchor.innerOffset + anchor.node.nodeValue.length;
+  // anchor.innerOffset at true offset
+  anchor.innerOffset += anchor.originalOffset;
+
+  // focus.outerOffset at the true offset
+  focus.outerOffset = focus.innerOffset + focus.originalOffset;
+  // focus.innerOffset is at beggining of text node (already)
+
+  newHTML = p.slice(0, anchor.innerOffset)
+          + addOpenTag()
+          + p.slice(anchor.innerOffset, anchor.outerOffset)
+          + closeTag
+          + p.slice(anchor.outerOffset, focus.innerOffset)
+          + addOpenTag()
+          + p.slice(focus.innerOffset, focus.outerOffset)
+          + closeTag
+          + p.slice(focus.outerOffset);
+
+  // highlight anchor siblings
+  // let innerOffset = anchor.outerOffset + (isElement(anchor.node) ? closeTagLength(anchor.node):0);
+  // let outerOffset = innerOffset;
+  // let node = anchor.node.nextSibling;
+  // while (node) {
+  //   innerOffset = outerOffset + (isElement(node) ? openTagLength(node) : 0);
+  //   outerOffset += (isElement(node) ? node.innerHTML.length : node.nodeValue.length);
+  //
+  //
+  //   node = node.nextSibling;
+  // }
+
+  commonAncestor.innerHTML = newHTML;
+}
+
+/**
+ *
  * Highlights text between the two elements
  *
  * @param {Node} anchorParentNode
@@ -522,7 +701,7 @@ function highlightElement (anchorParentNode, focusParentNode) {
 
   for (let i=anchorIndex+1; i<focusIndex; i++) {
       if (childNodes[i].nodeType == Node.ELEMENT_NODE) {
-        childNodes[i].innerHTML = openTag + childNodes[i].innerHTML + closeTag;
+        childNodes[i].innerHTML = addOpenTag() + childNodes[i].innerHTML + closeTag;
       }
   }
 
@@ -620,20 +799,22 @@ function getAncestors (node) {
  */
 function getCommonAncestor (a, b, ancestors_a = null, ancestors_b = null) {
 
-  // get both nodes' ancestry tree
-  if (!ancestors_a) ancestors_a = getAncestors(a);
-  if (!ancestors_b) ancestors_b = getAncestors(b);
-
-  // greates ancestor must be the same
-  if (ancestors_a[ancestors_a.length] != ancestors_b[ancestors_b.length]) {
-    throw "No common ancestor.";
-  }
-
-  // return the greatest ancestor that belongs to both ancestry trees
-  for (let i=ancestors_a.length, j=ancestors_b.length; i >= 0 && j >= 0; i--, j--) {
-    if (ancestors_a[i] != ancestors_b[j]) return ancestors_a[i + 1], ancestors_b[j + 1];
-  }
-
-  // ancestors are the same so nodes are the same
-  return a;
+  return document.body;
+  //
+  // // get both nodes' ancestry tree
+  // if (!ancestors_a) ancestors_a = getAncestors(a);
+  // if (!ancestors_b) ancestors_b = getAncestors(b);
+  //
+  // // greates ancestor must be the same
+  // if (ancestors_a[ancestors_a.length] != ancestors_b[ancestors_b.length]) {
+  //   throw "No common ancestor.";
+  // }
+  //
+  // // return the greatest ancestor that belongs to both ancestry trees
+  // for (let i=ancestors_a.length, j=ancestors_b.length; i >= 0 && j >= 0; i--, j--) {
+  //   if (ancestors_a[i] != ancestors_b[j]) return ancestors_a[i + 1], ancestors_b[j + 1];
+  // }
+  //
+  // // ancestors are the same so nodes are the same
+  // return a;
 }
